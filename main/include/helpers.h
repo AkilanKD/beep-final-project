@@ -18,7 +18,21 @@
 #define A_SHARP_PIN 13
 #define B_PIN 1
 
-#define DEBOUNCE_TIME 100000
+// FREQUENCY DEFINITIONS
 
+#define C_FREQ 261.63
+#define C_SHARP_FREQ 277.18
+#define D_FREQ 293.66
+#define D_SHARP_FREQ 311.13
+#define E_FREQ 329.63
+#define F_FREQ 349.23
+#define F_SHARP_FREQ 369.99
+#define G_FREQ 392
+#define G_SHARP_FREQ 415.30
+#define A_FREQ 440
+#define A_SHARP_FREQ 466.16
+#define B_FREQ 493.88
+
+#define DEBOUNCE_TIME 100000
 
 #endif // HELPERS_H
