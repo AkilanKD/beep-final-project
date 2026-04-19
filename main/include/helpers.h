@@ -7,8 +7,10 @@
 #include <stdio.h>
 #include "driver/gpio.h"
 
-// PIN DEFINITIONS
-// Define GPIO pins for each note button
+// ---------------------------
+// Pin Mapping
+// ---------------------------
+// GPIO pin used by each piano key button.
 #define C_PIN 15
 #define C_SHARP_PIN 13
 #define D_PIN 14
@@ -22,13 +24,16 @@
 #define A_SHARP_PIN 22
 #define B_PIN 23
 
-// Define GPIO pin for volume control and output
-#define VOLUME_PIN 36 //ADC1_0
-#define OUTPUT_PIN 25 //DAC_1, ADC2_8
+// GPIO for analog volume control and DAC audio output.
+#define VOLUME_PIN 36 // ADC1_CH0
+#define OUTPUT_PIN 25 // DAC_CH1
 #define OCTAVE_UP_PIN 33
 #define OCTAVE_DOWN_PIN 32
 
-// FREQUENCY DEFINITIONS
+// ---------------------------
+// Note Frequencies (Hz)
+// ---------------------------
+// One-octave equal-tempered scale reference frequencies.
 
 #define C_FREQ 261.63
 #define C_SHARP_FREQ 277.18
@@ -43,8 +48,10 @@
 #define A_SHARP_FREQ 466.16
 #define B_FREQ 493.88
 
+// Legacy debounce constant kept for compatibility with older code paths.
 #define DEBOUNCE_TIME 100000
 
+// Number of note keys in one octave.
 #define NOTE_COUNT 12
 
 // Shared note metadata used by ISR and synthesis code.

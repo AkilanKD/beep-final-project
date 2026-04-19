@@ -10,35 +10,50 @@
 #include "esp_adc/adc_oneshot.h"
 #include "helpers.h"
 
+// Audio output sample rate (samples generated per second).
 #define SAMPLE_RATE_HZ      22050
+// Number of samples rendered per loop before sending to DAC DMA.
 #define AUDIO_BUFFER_SAMPLES 256
+// Size of the sine wave lookup table (power-of-two for fast wrapping).
 #define LUT_SIZE            256
+// Fixed divisor used to normalize the mixed output for up to 4 notes.
 #define MAX_MIX_POLYPHONY   4.0f
+// Debounce window for button interrupts, in microseconds.
 #define DEBOUNCE_US         20000
 
+// DAC continuous mode DMA descriptor count and DMA buffer size.
 #define DAC_DMA_DESC_NUM    6
 #define DAC_DMA_BUF_SIZE    512
 
 // ---------------------------
 // Synth Runtime State
 // ---------------------------
+// `TAG` labels log output so messages are easy to filter in ESP-IDF monitor.
 static const char *TAG = "poly_synth";
 
+// Handle for DAC continuous output driver.
 static dac_continuous_handle_t dac_handle;
+// Handle for ADC one-shot reads (volume control).
 static adc_oneshot_unit_handle_t adc_handle;
 
+// Pointers to immutable board note mappings from helpers.c.
 static const gpio_num_t *note_pins;
 static const float *note_freqs;
 
+// Per-note mutable state used by ISR and audio render loop.
 static volatile bool note_active[NOTE_COUNT];
 static volatile int64_t last_isr_time_us[NOTE_COUNT];
+// Stores unpressed level sampled at boot (supports active-low/high wiring).
 static uint8_t note_idle_level[NOTE_COUNT];
+// Shared waveform table and per-note DDS phase state.
 static float sine_lut[LUT_SIZE];
+// phase_acc stores "where we are" in each note's sine cycle.
 static float phase_acc[NOTE_COUNT];
+// phase_step stores "how much to move" in the cycle per audio sample.
 static float phase_step[NOTE_COUNT];
 
 /*
- * Returns if a button note of the given index (idx) is pressed at certain level
+ * Returns true when the note input level differs from its startup idle level.
  */
 static inline bool is_note_pressed_level(int idx, int level)
 {
@@ -49,10 +64,21 @@ static inline bool is_note_pressed_level(int idx, int level)
 // ---------------------------
 // Input ISR
 // ---------------------------
+/*
+ * GPIO ISR for note buttons.
+ *
+ * Steps:
+ * 1) Decode which note pin fired.
+ * 2) Ignore bounce edges inside DEBOUNCE_US.
+ * 3) Update note_active from the latest pin level.
+ */
 static void IRAM_ATTR note_gpio_isr(void *arg)
 {
+    // Timestamp for debounce checks.
     const int64_t now_us = esp_timer_get_time();
+    // ISR arg is the GPIO pin number cast through void*.
     const int pin = (int)(intptr_t)arg;
+    // Convert pin number to note index in runtime arrays.
     const int idx = helpers_note_index_from_pin(pin);
     if (idx < 0) {
         return;
@@ -64,6 +90,7 @@ static void IRAM_ATTR note_gpio_isr(void *arg)
     }
     last_isr_time_us[idx] = now_us;
 
+    // Update key state immediately so audio task sees changes with low latency.
     note_active[idx] = is_note_pressed_level(idx, gpio_get_level(pin));
 }
 
@@ -72,12 +99,16 @@ static void IRAM_ATTR note_gpio_isr(void *arg)
 // ---------------------------
 
 /*
- * Initalizes the phase steps
+ * Initializes per-note DDS phase accumulators and phase increments.
+ * phase_step = freq * LUT_SIZE / sample_rate
  */
 static void init_phase_steps(void)
 {
+    // Initialize every note oscillator to a known state before playback starts.
     for (int i = 0; i < NOTE_COUNT; ++i) {
+        // Start at beginning of waveform.
         phase_acc[i] = 0.0f;
+        // Precompute increment once to avoid repeated math in audio loop.
         phase_step[i] = (note_freqs[i] * (float)LUT_SIZE) / (float)SAMPLE_RATE_HZ;
         note_active[i] = false;
         last_isr_time_us[i] = 0;
@@ -86,7 +117,7 @@ static void init_phase_steps(void)
 }
 
 /*
- * Initializes the nodes for the 
+ * Configures note GPIO inputs and installs note edge interrupts.
  */
 static void init_note_gpio(void)
 {
@@ -110,31 +141,35 @@ static void init_note_gpio(void)
         .intr_type = GPIO_INTR_ANYEDGE
     };
 
-    // Configures the keyboard button pins
+    // Apply GPIO config to all note pins in one call.
     ESP_ERROR_CHECK(gpio_config(&input_pin_cfg));
-    // Higher level processor enabler
+    // Enable global GPIO ISR service before registering per-pin handlers.
     ESP_ERROR_CHECK(gpio_install_isr_service(0));
 
     for (int i = 0; i < NOTE_COUNT; ++i) {
-        // 
+        // Register one ISR callback per note pin.
         ESP_ERROR_CHECK(gpio_isr_handler_add(note_pins[i], note_gpio_isr, (void *)(intptr_t)note_pins[i]));
+        // Snapshot each key's idle level at startup.
         note_idle_level[i] = (uint8_t) gpio_get_level(note_pins[i]);
+        // Start with all notes released and debounce timer cleared.
         note_active[i] = false;
         last_isr_time_us[i] = 0;
     }
 }
 
 /*
- * 
+ * Initializes ADC channel used as volume knob input.
  */
 static void init_volume_adc(void)
 {
+    // ADC1 one-shot mode: explicit read each time in audio task.
     adc_oneshot_unit_init_cfg_t adc_init_cfg = {
         .unit_id = ADC_UNIT_1,
         .ulp_mode = ADC_ULP_MODE_DISABLE,
     };
     ESP_ERROR_CHECK(adc_oneshot_new_unit(&adc_init_cfg, &adc_handle));
 
+    // 12-bit conversion and 12 dB attenuation for broader voltage range.
     adc_oneshot_chan_cfg_t chan_cfg = {
         .bitwidth = ADC_BITWIDTH_12,
         .atten = ADC_ATTEN_DB_12,
@@ -142,6 +177,10 @@ static void init_volume_adc(void)
     ESP_ERROR_CHECK(adc_oneshot_config_channel(adc_handle, ADC_CHANNEL_0, &chan_cfg));
 }
 
+/*
+ * Initializes DAC in continuous DMA mode.
+ * Why this matters: DMA keeps audio output smooth without CPU writing each sample directly.
+ */
 static void init_dac_tx(void)
 {
     // ESP-IDF v5+ internal DAC path: continuous DMA output on DAC channel 0 (GPIO25).
@@ -156,6 +195,7 @@ static void init_dac_tx(void)
     };
 
     ESP_ERROR_CHECK(dac_continuous_new_channels(&dac_cfg, &dac_handle));
+    // Start DAC DMA stream.
     ESP_ERROR_CHECK(dac_continuous_enable(dac_handle));
 }
 
@@ -166,10 +206,13 @@ static void audio_task(void *arg)
 {
     (void)arg;
 
+    // Byte-oriented output buffer expected by internal DAC driver.
     uint8_t audio_buf[AUDIO_BUFFER_SAMPLES];
+    // Tracks last log print time to limit UART spam.
     int64_t last_debug_log_us = 0;
 
     while (1) {
+        // Keep note state synced even if an interrupt edge was missed.
         // Fallback state refresh in case interrupts are missed/noisy on a particular board.
         for (int i = 0; i < NOTE_COUNT; ++i) {
             note_active[i] = is_note_pressed_level(i, gpio_get_level(note_pins[i]));
@@ -178,11 +221,15 @@ static void audio_task(void *arg)
         // Poll volume once per audio buffer to keep control responsive with low overhead.
         int raw = 0;
         ESP_ERROR_CHECK(adc_oneshot_read(adc_handle, ADC_CHANNEL_0, &raw));
+        // Convert raw 12-bit value [0..4095] to gain [0.0..1.0].
         const float volume = (float)raw / 4095.0f;
+        // Captured for debug printing only.
         int active_notes_snapshot = 0;
 
         for (int n = 0; n < AUDIO_BUFFER_SAMPLES; ++n) {
+            // Mixed signal for one output sample.
             float mix = 0.0f;
+            // Number of notes contributing to this sample.
             int active_count = 0;
 
             for (int i = 0; i < NOTE_COUNT; ++i) {
@@ -190,36 +237,45 @@ static void audio_task(void *arg)
                     continue;
                 }
 
+                // Read current waveform sample from LUT.
                 int lut_idx = (int)phase_acc[i] & (LUT_SIZE - 1);
                 mix += sine_lut[lut_idx];
                 active_count++;
 
+                // Advance oscillator phase for next sample.
                 phase_acc[i] += phase_step[i];
                 if (phase_acc[i] >= (float)LUT_SIZE) {
+                    // Wrap phase when it crosses one full cycle.
                     phase_acc[i] -= (float)LUT_SIZE;
                 }
             }
 
             if (active_count > 0) {
                 // Fixed polyphony normalization avoids audible volume pumping.
+                // Beginner note: this keeps loudness more consistent as more keys are held.
                 mix = (mix / MAX_MIX_POLYPHONY) * volume;
             } else {
+                // Output silence if no notes are active.
                 mix = 0.0f;
             }
 
             if (n == 0) {
+                // Store note count from first sample as a cheap per-buffer snapshot.
                 active_notes_snapshot = active_count;
             }
 
+            // Constrain normalized sample to safe range before DAC conversion.
             if (mix > 1.0f) {
                 mix = 1.0f;
             } else if (mix < -1.0f) {
                 mix = -1.0f;
             }
 
+            // Map normalized float [-1,1] to DAC byte [0,255].
             audio_buf[n] = helpers_mix_to_dac_u8(mix);
         }
 
+        // Push generated buffer to DAC DMA; block until accepted.
         size_t bytes_loaded = 0;
         ESP_ERROR_CHECK(dac_continuous_write(dac_handle,
                                              audio_buf,
@@ -227,6 +283,9 @@ static void audio_task(void *arg)
                                              &bytes_loaded,
                                              -1));
 
+        // Optional sanity check left implicit: bytes_loaded should match buffer size.
+
+        // Print lightweight status at 5 Hz.
         const int64_t now_us = esp_timer_get_time();
         if ((now_us - last_debug_log_us) >= 200000) {
             ESP_LOGI(TAG,
@@ -244,6 +303,7 @@ static void audio_task(void *arg)
 // ---------------------------
 void app_main(void)
 {
+    // Acquire static note metadata used by setup and audio rendering.
     note_pins = helpers_get_note_pins();
     note_freqs = helpers_get_note_freqs();
 
@@ -254,8 +314,10 @@ void app_main(void)
     init_volume_adc();
     init_dac_tx();
 
+    // One startup log line to confirm runtime configuration.
     ESP_LOGI(TAG, "Poly synth started at %d Hz (DAC DMA, debounce=%d us)", SAMPLE_RATE_HZ, DEBOUNCE_US);
 
+    // Run render task on core 1 near top priority for stable audio timing.
     xTaskCreatePinnedToCore(audio_task,
                             "audio_task",
                             4096,
