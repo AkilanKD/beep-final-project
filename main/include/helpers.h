@@ -1,13 +1,17 @@
 #ifndef HELPERS_H
 #define HELPERS_H
 
+#include <stdbool.h>
+#include <stddef.h>
+#include <stdint.h>
 #include <stdio.h>
+#include "driver/gpio.h"
 
 // PIN DEFINITIONS
-
+// Define GPIO pins for each note button
 #define C_PIN 15
-#define C_SHARP_PIN 2
-#define D_PIN 0
+#define C_SHARP_PIN 13
+#define D_PIN 14
 #define D_SHARP_PIN 4
 #define E_PIN 16
 #define F_PIN 17
@@ -15,8 +19,12 @@
 #define G_PIN 18
 #define G_SHARP_PIN 19
 #define A_PIN 21
-#define A_SHARP_PIN 13
-#define B_PIN 1
+#define A_SHARP_PIN 22
+#define B_PIN 23
+
+// Define GPIO pin for volume control and output
+#define VOLUME_PIN 36 //ADC1_0
+#define OUTPUT_PIN 25 //DAC_1, ADC2_8
 
 // FREQUENCY DEFINITIONS
 
@@ -34,5 +42,20 @@
 #define B_FREQ 493.88
 
 #define DEBOUNCE_TIME 100000
+
+#define NOTE_COUNT 12
+
+// Shared note metadata used by ISR and synthesis code.
+const gpio_num_t *helpers_get_note_pins(void);
+const float *helpers_get_note_freqs(void);
+
+// Returns [0, NOTE_COUNT) for a valid note pin, or -1 when unknown.
+int helpers_note_index_from_pin(int pin);
+
+// Fills a sine LUT in the range [-1.0, 1.0].
+void helpers_init_sine_lut(float *lut, size_t lut_size);
+
+// Converts normalized audio sample [-1.0, 1.0] to unsigned DAC byte [0, 255].
+uint8_t helpers_mix_to_dac_u8(float sample);
 
 #endif // HELPERS_H
