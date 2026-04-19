@@ -25,6 +25,8 @@
 // Define GPIO pin for volume control and output
 #define VOLUME_PIN 36 //ADC1_0
 #define OUTPUT_PIN 25 //DAC_1, ADC2_8
+#define OCTAVE_UP_PIN 33
+#define OCTAVE_DOWN_PIN 32
 
 // FREQUENCY DEFINITIONS
 
