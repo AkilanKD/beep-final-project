@@ -141,8 +141,18 @@ static void init_note_gpio(void)
         .intr_type = GPIO_INTR_ANYEDGE
     };
 
+    const gpio_config_t octave_pin_cfg = {
+        .pin_bit_mask = (1ULL << OCTAVE_UP_PIN) | 
+                        (1ULL << OCTAVE_DOWN_PIN),
+        .mode = GPIO_MODE_INPUT,
+        .pull_up_en = GPIO_PULLUP_ENABLE,
+        .pull_down_en = GPIO_PULLDOWN_DISABLE,
+        .intr_type = GPIO_INTR_NEGEDGE
+    };
+
     // Apply GPIO config to all note pins in one call.
     ESP_ERROR_CHECK(gpio_config(&input_pin_cfg));
+    ESP_ERROR_CHECK(gpio_config(&octave_pin_cfg));
     // Enable global GPIO ISR service before registering per-pin handlers.
     ESP_ERROR_CHECK(gpio_install_isr_service(0));
 
