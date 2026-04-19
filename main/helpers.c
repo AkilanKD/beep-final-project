@@ -11,16 +11,25 @@ static const float s_note_freqs[NOTE_COUNT] = {
 	F_SHARP_FREQ, G_FREQ, G_SHARP_FREQ, A_FREQ, A_SHARP_FREQ, B_FREQ
 };
 
+/*
+ * Returns the array of note pins
+ */
 const gpio_num_t *helpers_get_note_pins(void)
 {
 	return s_note_pins;
 }
 
+/*
+ * Returns the array of note frequencies
+ */
 const float *helpers_get_note_freqs(void)
 {
 	return s_note_freqs;
 }
 
+/*
+ * Returns the index of a note, given its pin
+ */
 int helpers_note_index_from_pin(int pin)
 {
 	for (int i = 0; i < NOTE_COUNT; ++i) {
@@ -31,6 +40,9 @@ int helpers_note_index_from_pin(int pin)
 	return -1;
 }
 
+/*
+ * Precalculates the sine phases for all the frequencies in the lookup table
+ */
 void helpers_init_sine_lut(float *lut, size_t lut_size)
 {
 	if (lut == NULL || lut_size == 0) {

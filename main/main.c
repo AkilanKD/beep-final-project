@@ -37,6 +37,9 @@ static float sine_lut[LUT_SIZE];
 static float phase_acc[NOTE_COUNT];
 static float phase_step[NOTE_COUNT];
 
+/*
+ * Returns if a button note of the given index (idx) is pressed at certain level
+ */
 static inline bool is_note_pressed_level(int idx, int level)
 {
     // A note is considered pressed when the pin differs from its boot-time idle level.
@@ -67,6 +70,10 @@ static void IRAM_ATTR note_gpio_isr(void *arg)
 // ---------------------------
 // Initialization
 // ---------------------------
+
+/*
+ * Initalizes the phase steps
+ */
 static void init_phase_steps(void)
 {
     for (int i = 0; i < NOTE_COUNT; ++i) {
@@ -78,6 +85,9 @@ static void init_phase_steps(void)
     }
 }
 
+/*
+ * Initializes the nodes for the 
+ */
 static void init_note_gpio(void)
 {
     // Every note pin is configured as active-low button input with edge interrupts.
@@ -100,17 +110,23 @@ static void init_note_gpio(void)
         .intr_type = GPIO_INTR_ANYEDGE
     };
 
+    // Configures the keyboard button pins
     ESP_ERROR_CHECK(gpio_config(&input_pin_cfg));
+    // Higher level processor enabler
     ESP_ERROR_CHECK(gpio_install_isr_service(0));
 
     for (int i = 0; i < NOTE_COUNT; ++i) {
+        // 
         ESP_ERROR_CHECK(gpio_isr_handler_add(note_pins[i], note_gpio_isr, (void *)(intptr_t)note_pins[i]));
-        note_idle_level[i] = (uint8_t)gpio_get_level(note_pins[i]);
+        note_idle_level[i] = (uint8_t) gpio_get_level(note_pins[i]);
         note_active[i] = false;
         last_isr_time_us[i] = 0;
     }
 }
 
+/*
+ * 
+ */
 static void init_volume_adc(void)
 {
     adc_oneshot_unit_init_cfg_t adc_init_cfg = {
