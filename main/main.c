@@ -51,8 +51,10 @@ static float sine_lut[LUT_SIZE];
 static float phase_acc[NOTE_COUNT];
 // phase_step stores "how much to move" in the cycle per audio sample.
 static float phase_step[NOTE_COUNT];
-// Amount of octave shift done
-static int octave_shift;
+// Octave shift done on the piano
+static volatile int octave_shift;
+static volatile int64_t octave_up_last_isr_time_us;
+static volatile int64_t octave_down_last_isr_time_us;
 
 /*
  * Returns true when the note input level differs from its startup idle level.
@@ -97,8 +99,15 @@ static void IRAM_ATTR note_gpio_isr(void *arg)
 }
 
 /*
+ * GPIO ISR for for octave up button
  */
 static void octave_up_isr(void *arg) {
+    const int64_t now_us = esp_timer_get_time();
+    if ((now_us - octave_up_last_isr_time_us) < DEBOUNCE_US) {
+        return;
+    }
+    octave_up_last_isr_time_us = now_us;
+    
     if (octave_shift < MAX_OCTAVE_SHIFT) {
         octave_shift++;
     }
@@ -108,8 +117,15 @@ static void octave_up_isr(void *arg) {
 }
 
 /*
+ * GPIO ISR for for octave down button
  */
 static void octave_down_isr(void *arg) {
+    const int64_t now_us = esp_timer_get_time();
+    if ((now_us - octave_down_last_isr_time_us) < DEBOUNCE_US) {
+        return;
+    }
+    octave_down_last_isr_time_us = now_us;
+
     if (octave_shift > MIN_OCTAVE_SHIFT) {
         octave_shift--;
     }
@@ -200,6 +216,9 @@ static void init_octave_gpio(void)
     ESP_ERROR_CHECK(gpio_isr_handler_add(OCTAVE_UP_PIN, octave_up_isr, NULL));
     ESP_ERROR_CHECK(gpio_isr_handler_add(OCTAVE_DOWN_PIN, octave_down_isr, NULL));
 
+    octave_up_last_isr_time_us = 0;
+    octave_down_last_isr_time_us = 0;
+
     // Initalizes the octave shift to be zero
     octave_shift = (MIN_OCTAVE_SHIFT + MAX_OCTAVE_SHIFT) / 2;
 }
@@ -258,9 +277,7 @@ static void audio_task(void *arg)
     // Tracks last log print time to limit UART spam.
     int64_t last_debug_log_us = 0;
 
-    int a = 1;
-
-    while (a) {
+    while (1) {
         // Keep note state synced even if an interrupt edge was missed.
         // Fallback state refresh in case interrupts are missed/noisy on a particular board.
         for (int i = 0; i < OCTAVE_NOTE_COUNT; ++i) {
