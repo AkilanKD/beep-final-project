@@ -27,13 +27,15 @@
 // GPIO for analog volume control and DAC audio output.
 #define VOLUME_PIN 36 // ADC1_CH0
 #define OUTPUT_PIN 25 // DAC_CH1
+
+// GPIO for octave shifts.
 #define OCTAVE_UP_PIN 33
 #define OCTAVE_DOWN_PIN 32
 
 // ---------------------------
 // Note Frequencies (Hz)
 // ---------------------------
-// One-octave equal-tempered scale reference frequencies.
+// One-octave equal-tempered scale reference frequencies (using octave 4).
 
 #define C_FREQ 261.63
 #define C_SHARP_FREQ 277.18
@@ -51,12 +53,22 @@
 // Legacy debounce constant kept for compatibility with older code paths.
 #define DEBOUNCE_TIME 100000
 
+// Minimum and maximum octave shifts from octave 4.
+#define MIN_OCTAVE_SHIFT -2
+#define MAX_OCTAVE_SHIFT 2
+#define OCTAVE_COUNT (MAX_OCTAVE_SHIFT - MIN_OCTAVE_SHIFT + 1)
+
 // Number of note keys in one octave.
-#define NOTE_COUNT 12
+#define OCTAVE_NOTE_COUNT 12
+// Number of total note keys
+#define NOTE_COUNT (OCTAVE_COUNT * OCTAVE_NOTE_COUNT)
 
 // Shared note metadata used by ISR and synthesis code.
 const gpio_num_t *helpers_get_note_pins(void);
 const float *helpers_get_note_freqs(void);
+
+// Creates the note frequencies
+void helpers_populate_note_freqs(float *s_note_freqs);
 
 // Returns [0, NOTE_COUNT) for a valid note pin, or -1 when unknown.
 int helpers_note_index_from_pin(int pin);

@@ -2,16 +2,22 @@
 #include "helpers.h"
 
 // GPIO order matches frequency order so indices can be shared everywhere.
-static const gpio_num_t s_note_pins[NOTE_COUNT] = {
+static const gpio_num_t s_note_pins[OCTAVE_NOTE_COUNT] = {
 	C_PIN, C_SHARP_PIN, D_PIN, D_SHARP_PIN, E_PIN, F_PIN,
 	F_SHARP_PIN, G_PIN, G_SHARP_PIN, A_PIN, A_SHARP_PIN, B_PIN
 };
 
 // Frequencies for one octave, aligned by index with s_note_pins.
-static const float s_note_freqs[NOTE_COUNT] = {
+static const float s_base_note_freqs[OCTAVE_NOTE_COUNT] = {
 	C_FREQ, C_SHARP_FREQ, D_FREQ, D_SHARP_FREQ, E_FREQ, F_FREQ,
 	F_SHARP_FREQ, G_FREQ, G_SHARP_FREQ, A_FREQ, A_SHARP_FREQ, B_FREQ
 };
+
+void helpers_populate_note_freqs(float *s_note_freqs) {
+	for (int i = 0; i < NOTE_COUNT; i++) {
+		s_note_freqs[i] = s_base_note_freqs[i % OCTAVE_NOTE_COUNT] * (float) (pow(2, (i / OCTAVE_NOTE_COUNT) + MIN_OCTAVE_SHIFT));
+	}
+}
 
 /*
  * Returns a pointer to the static note-pin table.
@@ -26,16 +32,16 @@ const gpio_num_t *helpers_get_note_pins(void)
  */
 const float *helpers_get_note_freqs(void)
 {
-	return s_note_freqs;
+	return s_base_note_freqs;
 }
 
 /*
- * Finds the note index for a GPIO pin.
+ * Finds the note index for a GPIO pin, based on the core pins.
  * Returns -1 when pin does not correspond to any known note key.
  */
 int helpers_note_index_from_pin(int pin)
 {
-	for (int i = 0; i < NOTE_COUNT; ++i) {
+	for (int i = 0; i < OCTAVE_NOTE_COUNT; ++i) {
 		if ((int)s_note_pins[i] == pin) {
 			return i;
 		}

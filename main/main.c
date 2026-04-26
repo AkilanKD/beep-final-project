@@ -38,7 +38,7 @@ static adc_oneshot_unit_handle_t adc_handle;
 
 // Pointers to immutable board note mappings from helpers.c.
 static const gpio_num_t *note_pins;
-static const float *note_freqs;
+static float note_freqs[NOTE_COUNT];
 
 // Per-note mutable state used by ISR and audio render loop.
 static volatile bool note_active[NOTE_COUNT];
@@ -51,6 +51,8 @@ static float sine_lut[LUT_SIZE];
 static float phase_acc[NOTE_COUNT];
 // phase_step stores "how much to move" in the cycle per audio sample.
 static float phase_step[NOTE_COUNT];
+// Amount of octave shift done
+static int octave_shift;
 
 /*
  * Returns true when the note input level differs from its startup idle level.
@@ -91,7 +93,29 @@ static void IRAM_ATTR note_gpio_isr(void *arg)
     last_isr_time_us[idx] = now_us;
 
     // Update key state immediately so audio task sees changes with low latency.
-    note_active[idx] = is_note_pressed_level(idx, gpio_get_level(pin));
+    note_active[idx + OCTAVE_NOTE_COUNT * (octave_shift - MIN_OCTAVE_SHIFT)] = is_note_pressed_level(idx, gpio_get_level(pin));
+}
+
+/*
+ */
+static void octave_up_isr(void *arg) {
+    if (octave_shift < MAX_OCTAVE_SHIFT) {
+        octave_shift++;
+    }
+    else {
+        octave_shift = MAX_OCTAVE_SHIFT;
+    }
+}
+
+/*
+ */
+static void octave_down_isr(void *arg) {
+    if (octave_shift > MIN_OCTAVE_SHIFT) {
+        octave_shift--;
+    }
+    else {
+        octave_shift = MIN_OCTAVE_SHIFT;
+    }
 }
 
 // ---------------------------
@@ -141,22 +165,12 @@ static void init_note_gpio(void)
         .intr_type = GPIO_INTR_ANYEDGE
     };
 
-    const gpio_config_t octave_pin_cfg = {
-        .pin_bit_mask = (1ULL << OCTAVE_UP_PIN) | 
-                        (1ULL << OCTAVE_DOWN_PIN),
-        .mode = GPIO_MODE_INPUT,
-        .pull_up_en = GPIO_PULLUP_ENABLE,
-        .pull_down_en = GPIO_PULLDOWN_DISABLE,
-        .intr_type = GPIO_INTR_NEGEDGE
-    };
-
     // Apply GPIO config to all note pins in one call.
     ESP_ERROR_CHECK(gpio_config(&input_pin_cfg));
-    ESP_ERROR_CHECK(gpio_config(&octave_pin_cfg));
     // Enable global GPIO ISR service before registering per-pin handlers.
     ESP_ERROR_CHECK(gpio_install_isr_service(0));
 
-    for (int i = 0; i < NOTE_COUNT; ++i) {
+    for (int i = 0; i < OCTAVE_NOTE_COUNT; ++i) {
         // Register one ISR callback per note pin.
         ESP_ERROR_CHECK(gpio_isr_handler_add(note_pins[i], note_gpio_isr, (void *)(intptr_t)note_pins[i]));
         // Snapshot each key's idle level at startup.
@@ -165,6 +179,29 @@ static void init_note_gpio(void)
         note_active[i] = false;
         last_isr_time_us[i] = 0;
     }
+}
+
+/*
+ *
+ */
+static void init_octave_gpio(void)
+{
+    const gpio_config_t octave_pin_cfg = {
+        .pin_bit_mask = (1ULL << OCTAVE_UP_PIN) | 
+                        (1ULL << OCTAVE_DOWN_PIN),
+        .mode = GPIO_MODE_INPUT,
+        .pull_up_en = GPIO_PULLUP_ENABLE,
+        .pull_down_en = GPIO_PULLDOWN_DISABLE,
+        .intr_type = GPIO_INTR_NEGEDGE
+    };
+    ESP_ERROR_CHECK(gpio_config(&octave_pin_cfg));
+//    ESP_ERROR_CHECK(gpio_install_isr_service(ESP_INTR_FLAG_EDGE));
+//    ESP_ERROR_CHECK(gpio_install_isr_service(0));
+    ESP_ERROR_CHECK(gpio_isr_handler_add(OCTAVE_UP_PIN, octave_up_isr, NULL));
+    ESP_ERROR_CHECK(gpio_isr_handler_add(OCTAVE_DOWN_PIN, octave_down_isr, NULL));
+
+    // Initalizes the octave shift to be zero
+    octave_shift = (MIN_OCTAVE_SHIFT + MAX_OCTAVE_SHIFT) / 2;
 }
 
 /*
@@ -221,10 +258,12 @@ static void audio_task(void *arg)
     // Tracks last log print time to limit UART spam.
     int64_t last_debug_log_us = 0;
 
-    while (1) {
+    int a = 1;
+
+    while (a) {
         // Keep note state synced even if an interrupt edge was missed.
         // Fallback state refresh in case interrupts are missed/noisy on a particular board.
-        for (int i = 0; i < NOTE_COUNT; ++i) {
+        for (int i = 0; i < OCTAVE_NOTE_COUNT; ++i) {
             note_active[i] = is_note_pressed_level(i, gpio_get_level(note_pins[i]));
         }
 
@@ -242,21 +281,24 @@ static void audio_task(void *arg)
             // Number of notes contributing to this sample.
             int active_count = 0;
 
-            for (int i = 0; i < NOTE_COUNT; ++i) {
+            for (int i = 0; i < OCTAVE_NOTE_COUNT; ++i) {
                 if (!note_active[i]) {
                     continue;
                 }
 
+                // Finds note index, adjusted for octave
+                int idx = i + OCTAVE_NOTE_COUNT * (octave_shift - MIN_OCTAVE_SHIFT);
+
                 // Read current waveform sample from LUT.
-                int lut_idx = (int)phase_acc[i] & (LUT_SIZE - 1);
+                int lut_idx = (int)phase_acc[idx] & (LUT_SIZE - 1);
                 mix += sine_lut[lut_idx];
                 active_count++;
 
                 // Advance oscillator phase for next sample.
-                phase_acc[i] += phase_step[i];
-                if (phase_acc[i] >= (float)LUT_SIZE) {
+                phase_acc[idx] += phase_step[idx];
+                if (phase_acc[idx] >= (float)LUT_SIZE) {
                     // Wrap phase when it crosses one full cycle.
-                    phase_acc[i] -= (float)LUT_SIZE;
+                    phase_acc[idx] -= (float)LUT_SIZE;
                 }
             }
 
@@ -299,10 +341,12 @@ static void audio_task(void *arg)
         const int64_t now_us = esp_timer_get_time();
         if ((now_us - last_debug_log_us) >= 200000) {
             ESP_LOGI(TAG,
-                     "active_notes=%d volume=%.2f raw=%d",
+                     "active_notes=%d volume=%.2f raw=%d, octave = %d",
                      active_notes_snapshot,
                      (double)volume,
-                     raw);
+                     raw,
+                     octave_shift
+                    );
             last_debug_log_us = now_us;
         }
     }
@@ -315,17 +359,22 @@ void app_main(void)
 {
     // Acquire static note metadata used by setup and audio rendering.
     note_pins = helpers_get_note_pins();
-    note_freqs = helpers_get_note_freqs();
+    helpers_populate_note_freqs(note_freqs);
 
     // Build waveform table once at startup; runtime only does table lookup.
     helpers_init_sine_lut(sine_lut, LUT_SIZE);
     init_phase_steps();
     init_note_gpio();
+    init_octave_gpio();
     init_volume_adc();
     init_dac_tx();
 
     // One startup log line to confirm runtime configuration.
-    ESP_LOGI(TAG, "Poly synth started at %d Hz (DAC DMA, debounce=%d us)", SAMPLE_RATE_HZ, DEBOUNCE_US);
+    ESP_LOGI(TAG, "Poly synth started at %d Hz (DAC DMA, debounce=%d us), octave = %d", SAMPLE_RATE_HZ, DEBOUNCE_US, octave_shift);
+
+    for (int i = 0; i < NOTE_COUNT; i++) {
+        ESP_LOGI(TAG, "Note %d freq is %f", i, note_freqs[i]);
+    }
 
     // Run render task on core 1 near top priority for stable audio timing.
     xTaskCreatePinnedToCore(audio_task,
