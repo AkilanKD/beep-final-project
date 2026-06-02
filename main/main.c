@@ -51,8 +51,10 @@ static float sine_lut[LUT_SIZE];
 static float phase_acc[NOTE_COUNT];
 // phase_step stores "how much to move" in the cycle per audio sample.
 static float phase_step[NOTE_COUNT];
+
 // Octave shift done on the piano
 static volatile int octave_shift;
+// Octave shift time stamps
 static volatile int64_t octave_up_last_isr_time_us;
 static volatile int64_t octave_down_last_isr_time_us;
 
@@ -354,7 +356,7 @@ static void audio_task(void *arg)
 
         // Optional sanity check left implicit: bytes_loaded should match buffer size.
 
-        // Print lightweight status at 5 Hz.
+        // Print lightweight statusreport  at 5 Hz.
         const int64_t now_us = esp_timer_get_time();
         if ((now_us - last_debug_log_us) >= 200000) {
             ESP_LOGI(TAG,
@@ -376,7 +378,9 @@ void app_main(void)
 {
     // Acquire static note metadata used by setup and audio rendering.
     note_pins = helpers_get_note_pins();
-    helpers_populate_note_freqs(note_freqs);
+
+    // Builds note frequency table
+    helpers_init_note_freqs(note_freqs);
 
     // Build waveform table once at startup; runtime only does table lookup.
     helpers_init_sine_lut(sine_lut, LUT_SIZE);

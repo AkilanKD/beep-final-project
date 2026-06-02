@@ -63,20 +63,10 @@
 // Number of total note keys
 #define NOTE_COUNT (OCTAVE_COUNT * OCTAVE_NOTE_COUNT)
 
-// Shared note metadata used by ISR and synthesis code.
 const gpio_num_t *helpers_get_note_pins(void);
-const float *helpers_get_note_freqs(void);
-
-// Creates the note frequencies
-void helpers_populate_note_freqs(float *s_note_freqs);
-
-// Returns [0, NOTE_COUNT) for a valid note pin, or -1 when unknown.
+void helpers_init_note_freqs(float s_note_freqs[NOTE_COUNT]);
 int helpers_note_index_from_pin(int pin);
-
-// Fills a sine LUT in the range [-1.0, 1.0].
 void helpers_init_sine_lut(float *lut, size_t lut_size);
-
-// Converts normalized audio sample [-1.0, 1.0] to unsigned DAC byte [0, 255].
 uint8_t helpers_mix_to_dac_u8(float sample);
 
 #endif // HELPERS_H

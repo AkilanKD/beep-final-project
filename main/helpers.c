@@ -13,12 +13,6 @@ static const float s_base_note_freqs[OCTAVE_NOTE_COUNT] = {
 	F_SHARP_FREQ, G_FREQ, G_SHARP_FREQ, A_FREQ, A_SHARP_FREQ, B_FREQ
 };
 
-void helpers_populate_note_freqs(float *s_note_freqs) {
-	for (int i = 0; i < NOTE_COUNT; i++) {
-		s_note_freqs[i] = s_base_note_freqs[i % OCTAVE_NOTE_COUNT] * (float) (pow(2, (i / OCTAVE_NOTE_COUNT) + MIN_OCTAVE_SHIFT));
-	}
-}
-
 /*
  * Returns a pointer to the static note-pin table.
  */
@@ -28,11 +22,12 @@ const gpio_num_t *helpers_get_note_pins(void)
 }
 
 /*
- * Returns a pointer to the static note-frequency table.
+ * Calculates the note frequencies of every note, then fill out a lookup dable
  */
-const float *helpers_get_note_freqs(void)
-{
-	return s_base_note_freqs;
+void helpers_init_note_freqs(float s_note_freqs[NOTE_COUNT]) {
+	for (int i = 0; i < NOTE_COUNT; i++) {
+		s_note_freqs[i] = s_base_note_freqs[i % OCTAVE_NOTE_COUNT] * (float) (pow(2, (i / OCTAVE_NOTE_COUNT) + MIN_OCTAVE_SHIFT));
+	}
 }
 
 /*
