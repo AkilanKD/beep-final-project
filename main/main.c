@@ -53,10 +53,13 @@ static float phase_acc[NOTE_COUNT];
 static float phase_step[NOTE_COUNT];
 
 // Octave shift done on the piano
-static volatile int octave_shift;
+static volatile int octave_shift = 0;
 // Octave shift time stamps
 static volatile int64_t octave_up_last_isr_time_us;
 static volatile int64_t octave_down_last_isr_time_us;
+
+// Shared lookup table of key loudnesses for every loudness level and note
+static double loudnesses[LOUDNESS_COUNT][NOTE_COUNT];
 
 /*
  * Returns true when the note input level differs from its startup idle level.
@@ -200,7 +203,7 @@ static void init_note_gpio(void)
 }
 
 /*
- *
+ * Configures the GPIO pins for the octave up/down buttons
  */
 static void init_octave_gpio(void)
 {
@@ -289,8 +292,8 @@ static void audio_task(void *arg)
         // Poll volume once per audio buffer to keep control responsive with low overhead.
         int raw = 0;
         ESP_ERROR_CHECK(adc_oneshot_read(adc_handle, ADC_CHANNEL_0, &raw));
-        // Convert raw 12-bit value [0..4095] to gain [0.0..1.0].
-        const float volume = (float)raw / 4095.0f;
+        // Convert raw 12-bit value [0..4095] to voluem level [0..LOUDNESS_COUNT]
+        const int volume = (int) (raw / (4095.0f / (LOUDNESS_COUNT - 1)) + 0.5f);
         // Captured for debug printing only.
         int active_notes_snapshot = 0;
 
@@ -310,7 +313,7 @@ static void audio_task(void *arg)
 
                 // Read current waveform sample from LUT.
                 int lut_idx = (int)phase_acc[idx] & (LUT_SIZE - 1);
-                mix += sine_lut[lut_idx];
+                mix += (float) (sine_lut[lut_idx] * loudnesses[volume][idx]);
                 active_count++;
 
                 // Advance oscillator phase for next sample.
@@ -323,8 +326,7 @@ static void audio_task(void *arg)
 
             if (active_count > 0) {
                 // Fixed polyphony normalization avoids audible volume pumping.
-                // Beginner note: this keeps loudness more consistent as more keys are held.
-                mix = (mix / MAX_MIX_POLYPHONY) * volume;
+                mix = (mix / MAX_MIX_POLYPHONY) / active_count;
             } else {
                 // Output silence if no notes are active.
                 mix = 0.0f;
@@ -360,9 +362,9 @@ static void audio_task(void *arg)
         const int64_t now_us = esp_timer_get_time();
         if ((now_us - last_debug_log_us) >= 200000) {
             ESP_LOGI(TAG,
-                     "active_notes=%d volume=%.2f raw=%d, octave = %d",
+                     "active_notes=%d volume=%d raw=%d, octave = %d",
                      active_notes_snapshot,
-                     (double)volume,
+                     volume,
                      raw,
                      octave_shift
                     );
@@ -378,12 +380,13 @@ void app_main(void)
 {
     // Acquire static note metadata used by setup and audio rendering.
     note_pins = helpers_get_note_pins();
-
     // Builds note frequency table
     helpers_init_note_freqs(note_freqs);
-
     // Build waveform table once at startup; runtime only does table lookup.
     helpers_init_sine_lut(sine_lut, LUT_SIZE);
+    // Builds loudness table
+    helpers_init_loudnesses(loudnesses);
+
     init_phase_steps();
     init_note_gpio();
     init_octave_gpio();
@@ -397,6 +400,10 @@ void app_main(void)
         ESP_LOGI(TAG, "Note %d freq is %f", i, note_freqs[i]);
     }
 
+    for (int i = 0; i < LOUDNESS_COUNT; i++) {
+        ESP_LOGI(TAG, "%d (loudness=%.3f): %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f", i, (i * (float) (MAX_VOLUME - MIN_VOLUME) / (LOUDNESS_COUNT - 1)) + MIN_VOLUME, loudnesses[i][0], loudnesses[i][1], loudnesses[i][2], loudnesses[i][3], loudnesses[i][4], loudnesses[i][5], loudnesses[i][6], loudnesses[i][7], loudnesses[i][8], loudnesses[i][9], loudnesses[i][10], loudnesses[i][11], loudnesses[i][12], loudnesses[i][13], loudnesses[i][14], loudnesses[i][15], loudnesses[i][16], loudnesses[i][17], loudnesses[i][18], loudnesses[i][19], loudnesses[i][20], loudnesses[i][21], loudnesses[i][22], loudnesses[i][23], loudnesses[i][24], loudnesses[i][25], loudnesses[i][26], loudnesses[i][27], loudnesses[i][28], loudnesses[i][29], loudnesses[i][30], loudnesses[i][31], loudnesses[i][32], loudnesses[i][33], loudnesses[i][34], loudnesses[i][35], loudnesses[i][36], loudnesses[i][37], loudnesses[i][38], loudnesses[i][39], loudnesses[i][40], loudnesses[i][41], loudnesses[i][42], loudnesses[i][43], loudnesses[i][44], loudnesses[i][45], loudnesses[i][46], loudnesses[i][47], loudnesses[i][48], loudnesses[i][49], loudnesses[i][50], loudnesses[i][51], loudnesses[i][52], loudnesses[i][53], loudnesses[i][54], loudnesses[i][55], loudnesses[i][56], loudnesses[i][57], loudnesses[i][58], loudnesses[i][59]);
+    }
+    
     // Run render task on core 1 near top priority for stable audio timing.
     xTaskCreatePinnedToCore(audio_task,
                             "audio_task",
