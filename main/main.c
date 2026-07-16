@@ -245,7 +245,7 @@ static void init_volume_adc(void)
         .bitwidth = ADC_BITWIDTH_12,
         .atten = ADC_ATTEN_DB_12,
     };
-    ESP_ERROR_CHECK(adc_oneshot_config_channel(adc_handle, ADC_CHANNEL_0, &chan_cfg));
+    ESP_ERROR_CHECK(adc_oneshot_config_channel(adc_handle, VOLUME_CHANNEL, &chan_cfg));
 }
 
 /*
@@ -291,7 +291,7 @@ static void audio_task(void *arg)
 
         // Poll volume once per audio buffer to keep control responsive with low overhead.
         int raw = 0;
-        ESP_ERROR_CHECK(adc_oneshot_read(adc_handle, ADC_CHANNEL_0, &raw));
+        ESP_ERROR_CHECK(adc_oneshot_read(adc_handle, VOLUME_CHANNEL, &raw));
         // Convert raw 12-bit value [0..4095] to voluem level [0..LOUDNESS_COUNT]
         const int volume = (int) (raw / (4095.0f / (LOUDNESS_COUNT - 1)) + 0.5f);
         // Captured for debug printing only.

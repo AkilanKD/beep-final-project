@@ -24,8 +24,8 @@
 #define A_SHARP_PIN 22
 #define B_PIN 23
 
-// GPIO for analog volume control and DAC audio output.
-#define VOLUME_PIN 36 // ADC1_CH0
+// GPIO/channel for analog volume control and DAC audio output.
+#define VOLUME_CHANNEL ADC_CHANNEL_7 // ADC1_CH7
 #define OUTPUT_PIN 25 // DAC_CH1
 
 // GPIO for octave shifts.
