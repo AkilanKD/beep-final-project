@@ -395,14 +395,6 @@ void app_main(void)
 
     // One startup log line to confirm runtime configuration.
     ESP_LOGI(TAG, "Poly synth started at %d Hz (DAC DMA, debounce=%d us), octave = %d", SAMPLE_RATE_HZ, DEBOUNCE_US, octave_shift);
-
-    for (int i = 0; i < NOTE_COUNT; i++) {
-        ESP_LOGI(TAG, "Note %d freq is %f", i, note_freqs[i]);
-    }
-
-    for (int i = 0; i < LOUDNESS_COUNT; i++) {
-        ESP_LOGI(TAG, "%d (loudness=%.3f): %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f", i, (i * (float) (MAX_VOLUME - MIN_VOLUME) / (LOUDNESS_COUNT - 1)) + MIN_VOLUME, loudnesses[i][0], loudnesses[i][1], loudnesses[i][2], loudnesses[i][3], loudnesses[i][4], loudnesses[i][5], loudnesses[i][6], loudnesses[i][7], loudnesses[i][8], loudnesses[i][9], loudnesses[i][10], loudnesses[i][11], loudnesses[i][12], loudnesses[i][13], loudnesses[i][14], loudnesses[i][15], loudnesses[i][16], loudnesses[i][17], loudnesses[i][18], loudnesses[i][19], loudnesses[i][20], loudnesses[i][21], loudnesses[i][22], loudnesses[i][23], loudnesses[i][24], loudnesses[i][25], loudnesses[i][26], loudnesses[i][27], loudnesses[i][28], loudnesses[i][29], loudnesses[i][30], loudnesses[i][31], loudnesses[i][32], loudnesses[i][33], loudnesses[i][34], loudnesses[i][35], loudnesses[i][36], loudnesses[i][37], loudnesses[i][38], loudnesses[i][39], loudnesses[i][40], loudnesses[i][41], loudnesses[i][42], loudnesses[i][43], loudnesses[i][44], loudnesses[i][45], loudnesses[i][46], loudnesses[i][47], loudnesses[i][48], loudnesses[i][49], loudnesses[i][50], loudnesses[i][51], loudnesses[i][52], loudnesses[i][53], loudnesses[i][54], loudnesses[i][55], loudnesses[i][56], loudnesses[i][57], loudnesses[i][58], loudnesses[i][59]);
-    }
     
     // Run render task on core 1 near top priority for stable audio timing.
     xTaskCreatePinnedToCore(audio_task,
