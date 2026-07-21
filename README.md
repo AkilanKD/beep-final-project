@@ -10,11 +10,11 @@ following features:
 * a knob to control note volumes
 * buttons to shift the keyboard up and down octaves in C
 
-![Photo of piano](media\photo.jpg)
+![Photo of piano](media/photo.jpg)
 
 ## Demo
 
-A demonstration of the video can be found [here](https://youtu.be/ytdognYXWMQ).
+A video demonstration of the piano can be found [here](https://youtu.be/ytdognYXWMQ).
 
 ## Electronics
 
@@ -24,7 +24,7 @@ The piano was originally constructed with materials from the
 it uses multiple push buttons, a potentiometer, an HXJ8002 audio amplifier module, and a speaker.
 The schematic below details how all the components are put together.
 
-![Schematic of piano](media\schematic.svg)
+![Schematic of piano](media/schematic.svg)
 
 ## Code
 
